@@ -155,24 +155,47 @@ export const getRecords = async (req, res) => {
     // Apply the filters and get the filtered records
     const filteredRecords = await Record.find(filter).lean();
 
-    // Merge records by email or Full_Name (or any other unique identifier)
-    const mergedRecords = {};
-    filteredRecords.forEach((record) => {
-      const identifier = record.Email || record.Full_Name; // Using Email or Full_Name as identifier
+    // // Merge records by email or Full_Name (or any other unique identifier)
+    // const mergedRecords = {};
+    // filteredRecords.forEach((record) => {
+    //   const identifier = record.Email || record.Full_Name; // Using Email or Full_Name as identifier
 
-      if (mergedRecords[identifier]) {
-        // Merge the existing record with the current one
-        mergedRecords[identifier].Amount += record.Amount || 0;
-        mergedRecords[identifier].Product += `, ${record.Product}`;
-        mergedRecords[identifier].Magazine += `, ${record.Magazine}`;
-        mergedRecords[identifier].Quantity += record.Quantity || 0;
-        mergedRecords[identifier].Notes += `, ${record.Notes || ''}`;
-        // Add other fields as needed
-      } else {
-        // If no previous record, add it
-        mergedRecords[identifier] = { ...record };
-      }
-    });
+    //   if (mergedRecords[identifier]) {
+    //     // Merge the existing record with the current one
+    //     mergedRecords[identifier].Amount += record.Amount || 0;
+    //     mergedRecords[identifier].Product += `, ${record.Product}`;
+    //     mergedRecords[identifier].Magazine += `, ${record.Magazine}`;
+    //     mergedRecords[identifier].Quantity += record.Quantity || 0;
+    //     mergedRecords[identifier].Notes += `, ${record.Notes || ''}`;
+    //     // Add other fields as needed
+    //   } else {
+    //     // If no previous record, add it
+    //     mergedRecords[identifier] = { ...record };
+    //   }
+    // });
+// Merge records by email or Full_Name (or any other unique identifier)
+const mergedRecords = {};
+filteredRecords.forEach((record) => {
+  const identifier = record.Email || record.Full_Name; // Using Email or Full_Name as identifier
+
+  if (mergedRecords[identifier]) {
+    // Merge the existing record with the current one
+    if (record.Status === 'Successful') {
+      mergedRecords[identifier].Amount += record.Amount || 0; // Add amount only if status is 'Successful'
+      mergedRecords[identifier].Magazine += `, ${record.Magazine}`;
+      mergedRecords[identifier].Product += `, ${record.Product}`;
+    }
+    mergedRecords[identifier].Quantity += record.Quantity || 0;
+    mergedRecords[identifier].Notes += `, ${record.Notes || ''}`;
+    // Add other fields as needed
+  } else {
+    // If no previous record, add it
+    mergedRecords[identifier] = { ...record };
+
+    // Set the initial amount only if the status is 'Successful'
+    mergedRecords[identifier].Amount = record.Status === 'Successful' ? record.Amount || 0 : 0;
+  }
+});
 
     // Convert mergedRecords object back to an array
     const finalRecords = Object.values(mergedRecords);
@@ -191,17 +214,37 @@ export const getRecords = async (req, res) => {
     const totalRecords = filteredMergedRecords.length;
 
     // Calculate the total sum of the Amount field (apply min and max price conditions after filtering)
-    const totalAmount = await Record.aggregate([
-      { $match: filter }, // Apply the same filter
-      { $group: { _id: null, totalAmount: { $sum: '$Amount' } } },
-    ]);
-
+  // Calculate the total sum of the Amount field (apply min and max price conditions after filtering)
+  const totalAmount = await Record.aggregate([
+    {
+      $match: {
+        ...filter,
+        Status: 'Successful', // Include only records with "Successful" payment status
+      },
+    },
+    { $group: { _id: null, totalAmount: { $sum: '$Amount' } } },
+  ]);
     // Extract the totalAmount value or default to 0 if no records match
     const sumOfAmount = totalAmount.length > 0 ? totalAmount[0].totalAmount : 0;
 
     // Calculate total sales (sum of amounts) for each magazine
+    // const magazineSales = await Record.aggregate([
+    //   { $match: filter }, // Apply the same filter
+    //   {
+    //     $group: {
+    //       _id: '$Magazine', // Group by magazine name
+    //       totalSales: { $sum: '$Amount' }, // Sum up the amounts for each magazine
+    //     },
+    //   },
+    //   { $sort: { totalSales: -1 } }, // Optional: Sort magazines by sales in descending order
+    // ]);
     const magazineSales = await Record.aggregate([
-      { $match: filter }, // Apply the same filter
+      {
+        $match: {
+          ...filter,
+          Status: 'Successful', // Include only "Successful" payments
+        },
+      },
       {
         $group: {
           _id: '$Magazine', // Group by magazine name
@@ -210,7 +253,6 @@ export const getRecords = async (req, res) => {
       },
       { $sort: { totalSales: -1 } }, // Optional: Sort magazines by sales in descending order
     ]);
-
     // Calculate magazine-wise count
     const magazineCounts = await Record.aggregate([
       { $match: filter }, // Apply the same filter
